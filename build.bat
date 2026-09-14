@@ -1,6 +1,16 @@
 @echo off
 setlocal EnableDelayedExpansion
 
+REM Repo is UTF-8 without BOM (box-drawing comments etc.).
+REM MSVC defaults to system ANSI codepage (936/GBK on zh-CN) without /utf-8,
+REM causing C4819 everywhere + spurious C2059/C2143/C2447 in Hooks_Manifest.cpp.
+REM VS generator also leaves ExceptionHandling empty (no /EHsc), which breaks
+REM toml++ (IPCLoader.cpp C2593: noex::parse_result) on fresh builds.
+REM Force both flags for all cl invocations from this script.
+REM NOTE: do NOT use -D CMAKE_CXX_FLAGS="/utf-8" here: it overwrites CMake
+REM defaults and drops /GR /EHsc etc.
+set "CL=/utf-8 /EHsc"
+
 REM Always run from the script directory.
 cd /d "%~dp0"
 
@@ -37,8 +47,16 @@ for %%C in (%CONFIGS%) do (
 
     REM extract_tickets is EXCLUDE_FROM_ALL, so build it explicitly. It lands in
     REM build\tools\%%C\ rather than the shipped output directory.
+    REM NOTE: with the Visual Studio generator the target lives in the
+    REM separate build\tools solution (top-level .sln only contains
+    REM ipc_codegen), so it must be built via build\tools. Ninja keeps a
+    REM single graph under build\.
     echo [INFO] Building tool extract_tickets for %%C
-    cmake --build build --config %%C --target extract_tickets
+    if exist "build\tools\extract_tickets.vcxproj" (
+        cmake --build build/tools --config %%C --target extract_tickets
+    ) else (
+        cmake --build build --config %%C --target extract_tickets
+    )
     if errorlevel 1 goto :fail
 )
 
